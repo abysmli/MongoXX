@@ -3,15 +3,22 @@ use App\User;
 use App\Post;
 use App\Comment;
 
-// $id = $_ENV['STORMPATH_ID'];
-// $secret = $_ENV['STORMPATH_SECRET'];
-// \Stormpath\Client::$apiKeyProperties = "apiKey.id=$id\napiKey.secret=$secret";
-//$application = \Stormpath\Resource\Application::get($_ENV['STORMPATH_APPLICATION']);
+	$id = $_ENV['STORMPATH_ID'];
+	$secret = $_ENV['STORMPATH_SECRET'];
+	\Stormpath\Client::$apiKeyProperties = "apiKey.id=$id\napiKey.secret=$secret";
+	$application = \Stormpath\Resource\Application::get($_ENV['STORMPATH_APPLICATION']);
+	$url = $application->createIdSiteUrl(['callbackUri'=>'http://localhost:9000/idSiteResponse']);
 
-//$app->get(' /', function() {
 $app->get('/', function () use ($app) {
-    return view('welcome');
- });
+    return $app->welcome();
+});
+
+
+$app->get('/login', function() use ($application) {
+
+	return redirect($url);
+});
+
 // $app->get('login', function() use ($application) {
 //     $url = $spapplication->createIdSiteUrl(['callbackUri'=>'http://localhost:8888/idSiteResponse']);
 //     return redirect($url);
