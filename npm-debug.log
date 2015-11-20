@@ -1,0 +1,592 @@
+0 info it worked if it ends with ok
+1 verbose cli [ '/usr/local/bin/node',
+1 verbose cli   '/usr/local/bin/npm',
+1 verbose cli   'install',
+1 verbose cli   'boweruby',
+1 verbose cli   '-e',
+1 verbose cli   '#!/System/Library/Frameworks/Ruby.framework/Versions/Current/usr/bin/ruby\n# This script installs to /usr/local only. To install elsewhere you can just\n# untar https://github.com/Homebrew/homebrew/tarball/master anywhere you like or\n# change the value of HOMEBREW_PREFIX.\nHOMEBREW_PREFIX = \'/usr/local\'\nHOMEBREW_CACHE = \'/Library/Caches/Homebrew\'\nHOMEBREW_REPO = \'https://github.com/Homebrew/homebrew\'\n\nmodule Tty extend self\n  def blue; bold 34; end\n  def white; bold 39; end\n  def red; underline 31; end\n  def reset; escape 0; end\n  def bold n; escape "1;#{n}" end\n  def underline n; escape "4;#{n}" end\n  def escape n; "\\033[#{n}m" if STDOUT.tty? end\nend\n\nclass Array\n  def shell_s\n    cp = dup\n    first = cp.shift\n    cp.map{ |arg| arg.gsub " ", "\\\\ " }.unshift(first) * " "\n  end\nend\n\ndef ohai *args\n  puts "#{Tty.blue}==>#{Tty.white} #{args.shell_s}#{Tty.reset}"\nend\n\ndef warn warning\n  puts "#{Tty.red}Warning#{Tty.reset}: #{warning.chomp}"\nend\n\ndef system *args\n  abort "Failed during: #{args.shell_s}" unless Kernel.system(*args)\nend\n\ndef sudo *args\n  ohai "/usr/bin/sudo", *args\n  system "/usr/bin/sudo", *args\nend\n\ndef getc  # NOTE only tested on OS X\n  system "/bin/stty raw -echo"\n  if STDIN.respond_to?(:getbyte)\n    STDIN.getbyte\n  else\n    STDIN.getc\n  end\nensure\n  system "/bin/stty -raw echo"\nend\n\ndef wait_for_user\n  puts\n  puts "Press RETURN to continue or any other key to abort"\n  c = getc\n  # we test for \\r and \\n because some stuff does \\r instead\n  abort unless c == 13 or c == 10\nend\n\nclass Version\n  include Comparable\n  attr_reader :parts\n\n  def initialize(str)\n    @parts = str.split(".").map { |i| i.to_i }\n  end\n\n  def <=>(other)\n    parts <=> self.class.new(other).parts\n  end\nend\n\ndef macos_version\n  @macos_version ||= Version.new(`/usr/bin/sw_vers -productVersion`.chomp[/10\\.\\d+/])\nend\n\ndef git\n  @git ||= if ENV[\'GIT\'] and File.executable? ENV[\'GIT\']\n    ENV[\'GIT\']\n  elsif Kernel.system \'/usr/bin/which -s git\'\n    \'git\'\n  else\n    exe = `xcrun -find git 2>/dev/null`.chomp\n    exe if $? && $?.success? && !exe.empty? && File.executable?(exe)\n  end\n\n  return unless @git\n  # Github only supports HTTPS fetches on 1.7.10 or later:\n  # https://help.github.com/articles/https-cloning-errors\n  `#{@git} --version` =~ /git version (\\d\\.\\d+\\.\\d+)/\n  return if $1.nil? or Version.new($1) < "1.7.10"\n\n  @git\nend\n\ndef chmod?(d)\n  File.directory?(d) && !(File.readable?(d) && File.writable?(d) && File.executable?(d))\nend\n\ndef chown?(d)\n  !File.owned?(d)\nend\n\ndef chgrp?(d)\n  !File.grpowned?(d)\nend\n\n# Invalidate sudo timestamp before exiting\nat_exit { Kernel.system "/usr/bin/sudo", "-k" }\n\n# The block form of Dir.chdir fails later if Dir.CWD doesn\'t exist which I\n# guess is fair enough. Also sudo prints a warning message for no good reason\nDir.chdir "/usr"\n\n####################################################################### script\nabort "See Linuxbrew: http://brew.sh/linuxbrew/" if /linux/i === RUBY_PLATFORM\nabort "MacOS too old, see: https://github.com/mistydemeo/tigerbrew" if macos_version < "10.6"\nabort "Don\'t run this as root!" if Process.uid == 0\nabort <<-EOABORT unless `groups`.split.include? "admin"\nThis script requires the user #{ENV[\'USER\']} to be an Administrator. If this\nsucks for you then you can install Homebrew in your home directory or however\nyou please; please refer to our homepage. If you still want to use this script\nset your user to be an Administrator in System Preferences or `su\' to a\nnon-root user with Administrator privileges.\nEOABORT\ncontents = Dir.glob(HOMEBREW_PREFIX+"*/{*,.git*}").join(" ").gsub!(%r{#{HOMEBREW_PREFIX}/}, "")\nabort <<-EOABORT unless Dir["#{HOMEBREW_PREFIX}/.git/*"].empty?\nIt appears Homebrew is already installed. If your intent is to reinstall you\nshould do the following before running this installer again:\n    ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/uninstall)"\nThe current contents of #{HOMEBREW_PREFIX} are #{contents}\nEOABORT\n# Tests will fail if the prefix exists, but we don\'t have execution\n# permissions. Abort in this case.\nabort <<-EOABORT if File.directory? HOMEBREW_PREFIX and not File.executable? HOMEBREW_PREFIX\nThe Homebrew prefix, #{HOMEBREW_PREFIX}, exists but is not searchable. If this is\nnot intentional, please restore the default permissions and try running the\ninstaller again:\n    sudo chmod 775 #{HOMEBREW_PREFIX}\nEOABORT\nabort <<-EOABORT if `/usr/bin/xcrun clang 2>&1` =~ /license/ && !$?.success?\nYou have not agreed to the Xcode license.\nBefore running the installer again please agree to the license by opening\nXcode.app or running:\n    sudo xcodebuild -license\nEOABORT\nsandbox_paths_file = "/System/Library/Sandbox/Compatibility.bundle/Contents/Resources/paths"\nabort <<-EOABORT if !File.directory?(HOMEBREW_PREFIX) && macos_version >= "10.11" && !(File.exist?(sandbox_paths_file) && IO.read(sandbox_paths_file).include?("/usr/local\\n"))\nYour OS X 10.11 install requires an additional step to write into #{HOMEBREW_PREFIX}.\nPlease follow the steps described here and then run the install script again:\n  https://git.io/vnC7w\nEOABORT\n\nohai "This script will install:"\nputs "#{HOMEBREW_PREFIX}/bin/brew"\nputs "#{HOMEBREW_PREFIX}/Library/..."\nputs "#{HOMEBREW_PREFIX}/share/man/man1/brew.1"\n\nchmods = %w( . bin etc include lib lib/pkgconfig Library sbin share var var/log share/locale share/man\n             share/man/man1 share/man/man2 share/man/man3 share/man/man4\n             share/man/man5 share/man/man6 share/man/man7 share/man/man8\n             share/info share/doc share/aclocal ).\n             map { |d| File.join(HOMEBREW_PREFIX, d) }.select { |d| chmod?(d) }\nchowns = chmods.select { |d| chown?(d) }\nchgrps = chmods.select { |d| chgrp?(d) }\n\nunless chmods.empty?\n  ohai "The following directories will be made group writable:"\n  puts(*chmods)\nend\nunless chowns.empty?\n  ohai "The following directories will have their owner set to #{Tty.underline 39}#{ENV[\'USER\']}#{Tty.reset}:"\n  puts(*chowns)\nend\nunless chgrps.empty?\n  ohai "The following directories will have their group set to #{Tty.underline 39}admin#{Tty.reset}:"\n  puts(*chgrps)\nend\n\nwait_for_user if STDIN.tty?\n\nif File.directory? HOMEBREW_PREFIX\n  sudo "/bin/chmod", "g+rwx", *chmods unless chmods.empty?\n  sudo "/usr/sbin/chown", ENV[\'USER\'], *chowns unless chowns.empty?\n  sudo "/usr/bin/chgrp", "admin", *chgrps unless chgrps.empty?\nelse\n  sudo "/bin/mkdir", HOMEBREW_PREFIX\n  sudo "/bin/chmod", "g+rwx", HOMEBREW_PREFIX\n  # the group is set to wheel by default for some reason\n  sudo "/usr/sbin/chown", "#{ENV[\'USER\']}:admin", HOMEBREW_PREFIX\nend\n\nsudo "/bin/mkdir", HOMEBREW_CACHE unless File.directory? HOMEBREW_CACHE\nsudo "/bin/chmod", "g+rwx", HOMEBREW_CACHE if chmod? HOMEBREW_CACHE\nsudo "/usr/sbin/chown", ENV[\'USER\'], HOMEBREW_CACHE if chown? HOMEBREW_CACHE\nsudo "/usr/bin/chgrp", "admin", HOMEBREW_CACHE if chgrp? HOMEBREW_CACHE\n\nif macos_version >= "10.9"\n  developer_dir = `/usr/bin/xcode-select -print-path 2>/dev/null`.chomp\n  if developer_dir.empty? || !File.exist?("#{developer_dir}/usr/bin/git")\n    ohai "Installing the Command Line Tools (expect a GUI popup):"\n    sudo "/usr/bin/xcode-select", "--install"\n    puts "Press any key when the installation has completed."\n    getc\n  end\nend\n\nohai "Downloading and installing Homebrew..."\nDir.chdir HOMEBREW_PREFIX do\n  if git\n    # we do it in four steps to avoid merge errors when reinstalling\n    system git, "init", "-q"\n\n    # "git remote add" will fail if the remote is defined in the global config\n    system git, "config", "remote.origin.url", HOMEBREW_REPO\n    system git, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"\n\n    args = git, "fetch", "origin", "master:refs/remotes/origin/master", "-n"\n    args << "--depth=1" unless ARGV.include?("--full") || !ENV["HOMEBREW_DEVELOPER"].nil?\n    system(*args)\n\n    system git, "reset", "--hard", "origin/master"\n  else\n    # -m to stop tar erroring out if it can\'t modify the mtime for root owned directories\n    # pipefail to cause the exit status from curl to propagate if it fails\n    curl_flags = "fsSL"\n    system "/bin/bash -o pipefail -c \'/usr/bin/curl -#{curl_flags} #{HOMEBREW_REPO}/tarball/master | /usr/bin/tar xz -m --strip 1\'"\n  end\nend\n\nwarn "#{HOMEBREW_PREFIX}/bin is not in your PATH." unless ENV[\'PATH\'].split(\':\').include? "#{HOMEBREW_PREFIX}/bin"\n\nohai "Installation successful!"\nohai "Next steps"\n\nif macos_version < "10.9" and macos_version > "10.6"\n  `/usr/bin/cc --version 2> /dev/null` =~ %r[clang-(\\d{2,})]\n  version = $1.to_i\n  puts "Install the #{Tty.white}Command Line Tools for Xcode#{Tty.reset}: https://developer.apple.com/downloads" if version < 425\nelse\n  puts "Install #{Tty.white}Xcode#{Tty.reset}: https://developer.apple.com/xcode" unless File.exist? "/usr/bin/cc"\nend\n\nputs "Run `brew help` to get started"r',
+1 verbose cli   '-g' ]
+2 info using npm@3.3.12
+3 info using node@v5.1.0
+4 silly loadCurrentTree Starting
+5 silly install loadCurrentTree
+6 silly install readGlobalPackageData
+7 silly fetchPackageMetaData boweruby
+8 silly fetchPackageMetaData #!/System/Library/Frameworks/Ruby.framework/Versions/Current/usr/bin/ruby
+8 silly fetchPackageMetaData # This script installs to /usr/local only. To install elsewhere you can just
+8 silly fetchPackageMetaData # untar https://github.com/Homebrew/homebrew/tarball/master anywhere you like or
+8 silly fetchPackageMetaData # change the value of HOMEBREW_PREFIX.
+8 silly fetchPackageMetaData HOMEBREW_PREFIX = '/usr/local'
+8 silly fetchPackageMetaData HOMEBREW_CACHE = '/Library/Caches/Homebrew'
+8 silly fetchPackageMetaData HOMEBREW_REPO = 'https://github.com/Homebrew/homebrew'
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData module Tty extend self
+8 silly fetchPackageMetaData   def blue; bold 34; end
+8 silly fetchPackageMetaData   def white; bold 39; end
+8 silly fetchPackageMetaData   def red; underline 31; end
+8 silly fetchPackageMetaData   def reset; escape 0; end
+8 silly fetchPackageMetaData   def bold n; escape "1;#{n}" end
+8 silly fetchPackageMetaData   def underline n; escape "4;#{n}" end
+8 silly fetchPackageMetaData   def escape n; "\033[#{n}m" if STDOUT.tty? end
+8 silly fetchPackageMetaData end
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData class Array
+8 silly fetchPackageMetaData   def shell_s
+8 silly fetchPackageMetaData     cp = dup
+8 silly fetchPackageMetaData     first = cp.shift
+8 silly fetchPackageMetaData     cp.map{ |arg| arg.gsub " ", "\\ " }.unshift(first) * " "
+8 silly fetchPackageMetaData   end
+8 silly fetchPackageMetaData end
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData def ohai *args
+8 silly fetchPackageMetaData   puts "#{Tty.blue}==>#{Tty.white} #{args.shell_s}#{Tty.reset}"
+8 silly fetchPackageMetaData end
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData def warn warning
+8 silly fetchPackageMetaData   puts "#{Tty.red}Warning#{Tty.reset}: #{warning.chomp}"
+8 silly fetchPackageMetaData end
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData def system *args
+8 silly fetchPackageMetaData   abort "Failed during: #{args.shell_s}" unless Kernel.system(*args)
+8 silly fetchPackageMetaData end
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData def sudo *args
+8 silly fetchPackageMetaData   ohai "/usr/bin/sudo", *args
+8 silly fetchPackageMetaData   system "/usr/bin/sudo", *args
+8 silly fetchPackageMetaData end
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData def getc  # NOTE only tested on OS X
+8 silly fetchPackageMetaData   system "/bin/stty raw -echo"
+8 silly fetchPackageMetaData   if STDIN.respond_to?(:getbyte)
+8 silly fetchPackageMetaData     STDIN.getbyte
+8 silly fetchPackageMetaData   else
+8 silly fetchPackageMetaData     STDIN.getc
+8 silly fetchPackageMetaData   end
+8 silly fetchPackageMetaData ensure
+8 silly fetchPackageMetaData   system "/bin/stty -raw echo"
+8 silly fetchPackageMetaData end
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData def wait_for_user
+8 silly fetchPackageMetaData   puts
+8 silly fetchPackageMetaData   puts "Press RETURN to continue or any other key to abort"
+8 silly fetchPackageMetaData   c = getc
+8 silly fetchPackageMetaData   # we test for \r and \n because some stuff does \r instead
+8 silly fetchPackageMetaData   abort unless c == 13 or c == 10
+8 silly fetchPackageMetaData end
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData class Version
+8 silly fetchPackageMetaData   include Comparable
+8 silly fetchPackageMetaData   attr_reader :parts
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData   def initialize(str)
+8 silly fetchPackageMetaData     @parts = str.split(".").map { |i| i.to_i }
+8 silly fetchPackageMetaData   end
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData   def <=>(other)
+8 silly fetchPackageMetaData     parts <=> self.class.new(other).parts
+8 silly fetchPackageMetaData   end
+8 silly fetchPackageMetaData end
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData def macos_version
+8 silly fetchPackageMetaData   @macos_version ||= Version.new(`/usr/bin/sw_vers -productVersion`.chomp[/10\.\d+/])
+8 silly fetchPackageMetaData end
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData def git
+8 silly fetchPackageMetaData   @git ||= if ENV['GIT'] and File.executable? ENV['GIT']
+8 silly fetchPackageMetaData     ENV['GIT']
+8 silly fetchPackageMetaData   elsif Kernel.system '/usr/bin/which -s git'
+8 silly fetchPackageMetaData     'git'
+8 silly fetchPackageMetaData   else
+8 silly fetchPackageMetaData     exe = `xcrun -find git 2>/dev/null`.chomp
+8 silly fetchPackageMetaData     exe if $? && $?.success? && !exe.empty? && File.executable?(exe)
+8 silly fetchPackageMetaData   end
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData   return unless @git
+8 silly fetchPackageMetaData   # Github only supports HTTPS fetches on 1.7.10 or later:
+8 silly fetchPackageMetaData   # https://help.github.com/articles/https-cloning-errors
+8 silly fetchPackageMetaData   `#{@git} --version` =~ /git version (\d\.\d+\.\d+)/
+8 silly fetchPackageMetaData   return if $1.nil? or Version.new($1) < "1.7.10"
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData   @git
+8 silly fetchPackageMetaData end
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData def chmod?(d)
+8 silly fetchPackageMetaData   File.directory?(d) && !(File.readable?(d) && File.writable?(d) && File.executable?(d))
+8 silly fetchPackageMetaData end
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData def chown?(d)
+8 silly fetchPackageMetaData   !File.owned?(d)
+8 silly fetchPackageMetaData end
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData def chgrp?(d)
+8 silly fetchPackageMetaData   !File.grpowned?(d)
+8 silly fetchPackageMetaData end
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData # Invalidate sudo timestamp before exiting
+8 silly fetchPackageMetaData at_exit { Kernel.system "/usr/bin/sudo", "-k" }
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData # The block form of Dir.chdir fails later if Dir.CWD doesn't exist which I
+8 silly fetchPackageMetaData # guess is fair enough. Also sudo prints a warning message for no good reason
+8 silly fetchPackageMetaData Dir.chdir "/usr"
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData ####################################################################### script
+8 silly fetchPackageMetaData abort "See Linuxbrew: http://brew.sh/linuxbrew/" if /linux/i === RUBY_PLATFORM
+8 silly fetchPackageMetaData abort "MacOS too old, see: https://github.com/mistydemeo/tigerbrew" if macos_version < "10.6"
+8 silly fetchPackageMetaData abort "Don't run this as root!" if Process.uid == 0
+8 silly fetchPackageMetaData abort <<-EOABORT unless `groups`.split.include? "admin"
+8 silly fetchPackageMetaData This script requires the user #{ENV['USER']} to be an Administrator. If this
+8 silly fetchPackageMetaData sucks for you then you can install Homebrew in your home directory or however
+8 silly fetchPackageMetaData you please; please refer to our homepage. If you still want to use this script
+8 silly fetchPackageMetaData set your user to be an Administrator in System Preferences or `su' to a
+8 silly fetchPackageMetaData non-root user with Administrator privileges.
+8 silly fetchPackageMetaData EOABORT
+8 silly fetchPackageMetaData contents = Dir.glob(HOMEBREW_PREFIX+"*/{*,.git*}").join(" ").gsub!(%r{#{HOMEBREW_PREFIX}/}, "")
+8 silly fetchPackageMetaData abort <<-EOABORT unless Dir["#{HOMEBREW_PREFIX}/.git/*"].empty?
+8 silly fetchPackageMetaData It appears Homebrew is already installed. If your intent is to reinstall you
+8 silly fetchPackageMetaData should do the following before running this installer again:
+8 silly fetchPackageMetaData     ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/uninstall)"
+8 silly fetchPackageMetaData The current contents of #{HOMEBREW_PREFIX} are #{contents}
+8 silly fetchPackageMetaData EOABORT
+8 silly fetchPackageMetaData # Tests will fail if the prefix exists, but we don't have execution
+8 silly fetchPackageMetaData # permissions. Abort in this case.
+8 silly fetchPackageMetaData abort <<-EOABORT if File.directory? HOMEBREW_PREFIX and not File.executable? HOMEBREW_PREFIX
+8 silly fetchPackageMetaData The Homebrew prefix, #{HOMEBREW_PREFIX}, exists but is not searchable. If this is
+8 silly fetchPackageMetaData not intentional, please restore the default permissions and try running the
+8 silly fetchPackageMetaData installer again:
+8 silly fetchPackageMetaData     sudo chmod 775 #{HOMEBREW_PREFIX}
+8 silly fetchPackageMetaData EOABORT
+8 silly fetchPackageMetaData abort <<-EOABORT if `/usr/bin/xcrun clang 2>&1` =~ /license/ && !$?.success?
+8 silly fetchPackageMetaData You have not agreed to the Xcode license.
+8 silly fetchPackageMetaData Before running the installer again please agree to the license by opening
+8 silly fetchPackageMetaData Xcode.app or running:
+8 silly fetchPackageMetaData     sudo xcodebuild -license
+8 silly fetchPackageMetaData EOABORT
+8 silly fetchPackageMetaData sandbox_paths_file = "/System/Library/Sandbox/Compatibility.bundle/Contents/Resources/paths"
+8 silly fetchPackageMetaData abort <<-EOABORT if !File.directory?(HOMEBREW_PREFIX) && macos_version >= "10.11" && !(File.exist?(sandbox_paths_file) && IO.read(sandbox_paths_file).include?("/usr/local\n"))
+8 silly fetchPackageMetaData Your OS X 10.11 install requires an additional step to write into #{HOMEBREW_PREFIX}.
+8 silly fetchPackageMetaData Please follow the steps described here and then run the install script again:
+8 silly fetchPackageMetaData   https://git.io/vnC7w
+8 silly fetchPackageMetaData EOABORT
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData ohai "This script will install:"
+8 silly fetchPackageMetaData puts "#{HOMEBREW_PREFIX}/bin/brew"
+8 silly fetchPackageMetaData puts "#{HOMEBREW_PREFIX}/Library/..."
+8 silly fetchPackageMetaData puts "#{HOMEBREW_PREFIX}/share/man/man1/brew.1"
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData chmods = %w( . bin etc include lib lib/pkgconfig Library sbin share var var/log share/locale share/man
+8 silly fetchPackageMetaData              share/man/man1 share/man/man2 share/man/man3 share/man/man4
+8 silly fetchPackageMetaData              share/man/man5 share/man/man6 share/man/man7 share/man/man8
+8 silly fetchPackageMetaData              share/info share/doc share/aclocal ).
+8 silly fetchPackageMetaData              map { |d| File.join(HOMEBREW_PREFIX, d) }.select { |d| chmod?(d) }
+8 silly fetchPackageMetaData chowns = chmods.select { |d| chown?(d) }
+8 silly fetchPackageMetaData chgrps = chmods.select { |d| chgrp?(d) }
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData unless chmods.empty?
+8 silly fetchPackageMetaData   ohai "The following directories will be made group writable:"
+8 silly fetchPackageMetaData   puts(*chmods)
+8 silly fetchPackageMetaData end
+8 silly fetchPackageMetaData unless chowns.empty?
+8 silly fetchPackageMetaData   ohai "The following directories will have their owner set to #{Tty.underline 39}#{ENV['USER']}#{Tty.reset}:"
+8 silly fetchPackageMetaData   puts(*chowns)
+8 silly fetchPackageMetaData end
+8 silly fetchPackageMetaData unless chgrps.empty?
+8 silly fetchPackageMetaData   ohai "The following directories will have their group set to #{Tty.underline 39}admin#{Tty.reset}:"
+8 silly fetchPackageMetaData   puts(*chgrps)
+8 silly fetchPackageMetaData end
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData wait_for_user if STDIN.tty?
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData if File.directory? HOMEBREW_PREFIX
+8 silly fetchPackageMetaData   sudo "/bin/chmod", "g+rwx", *chmods unless chmods.empty?
+8 silly fetchPackageMetaData   sudo "/usr/sbin/chown", ENV['USER'], *chowns unless chowns.empty?
+8 silly fetchPackageMetaData   sudo "/usr/bin/chgrp", "admin", *chgrps unless chgrps.empty?
+8 silly fetchPackageMetaData else
+8 silly fetchPackageMetaData   sudo "/bin/mkdir", HOMEBREW_PREFIX
+8 silly fetchPackageMetaData   sudo "/bin/chmod", "g+rwx", HOMEBREW_PREFIX
+8 silly fetchPackageMetaData   # the group is set to wheel by default for some reason
+8 silly fetchPackageMetaData   sudo "/usr/sbin/chown", "#{ENV['USER']}:admin", HOMEBREW_PREFIX
+8 silly fetchPackageMetaData end
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData sudo "/bin/mkdir", HOMEBREW_CACHE unless File.directory? HOMEBREW_CACHE
+8 silly fetchPackageMetaData sudo "/bin/chmod", "g+rwx", HOMEBREW_CACHE if chmod? HOMEBREW_CACHE
+8 silly fetchPackageMetaData sudo "/usr/sbin/chown", ENV['USER'], HOMEBREW_CACHE if chown? HOMEBREW_CACHE
+8 silly fetchPackageMetaData sudo "/usr/bin/chgrp", "admin", HOMEBREW_CACHE if chgrp? HOMEBREW_CACHE
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData if macos_version >= "10.9"
+8 silly fetchPackageMetaData   developer_dir = `/usr/bin/xcode-select -print-path 2>/dev/null`.chomp
+8 silly fetchPackageMetaData   if developer_dir.empty? || !File.exist?("#{developer_dir}/usr/bin/git")
+8 silly fetchPackageMetaData     ohai "Installing the Command Line Tools (expect a GUI popup):"
+8 silly fetchPackageMetaData     sudo "/usr/bin/xcode-select", "--install"
+8 silly fetchPackageMetaData     puts "Press any key when the installation has completed."
+8 silly fetchPackageMetaData     getc
+8 silly fetchPackageMetaData   end
+8 silly fetchPackageMetaData end
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData ohai "Downloading and installing Homebrew..."
+8 silly fetchPackageMetaData Dir.chdir HOMEBREW_PREFIX do
+8 silly fetchPackageMetaData   if git
+8 silly fetchPackageMetaData     # we do it in four steps to avoid merge errors when reinstalling
+8 silly fetchPackageMetaData     system git, "init", "-q"
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData     # "git remote add" will fail if the remote is defined in the global config
+8 silly fetchPackageMetaData     system git, "config", "remote.origin.url", HOMEBREW_REPO
+8 silly fetchPackageMetaData     system git, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData     args = git, "fetch", "origin", "master:refs/remotes/origin/master", "-n"
+8 silly fetchPackageMetaData     args << "--depth=1" unless ARGV.include?("--full") || !ENV["HOMEBREW_DEVELOPER"].nil?
+8 silly fetchPackageMetaData     system(*args)
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData     system git, "reset", "--hard", "origin/master"
+8 silly fetchPackageMetaData   else
+8 silly fetchPackageMetaData     # -m to stop tar erroring out if it can't modify the mtime for root owned directories
+8 silly fetchPackageMetaData     # pipefail to cause the exit status from curl to propagate if it fails
+8 silly fetchPackageMetaData     curl_flags = "fsSL"
+8 silly fetchPackageMetaData     system "/bin/bash -o pipefail -c '/usr/bin/curl -#{curl_flags} #{HOMEBREW_REPO}/tarball/master | /usr/bin/tar xz -m --strip 1'"
+8 silly fetchPackageMetaData   end
+8 silly fetchPackageMetaData end
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData warn "#{HOMEBREW_PREFIX}/bin is not in your PATH." unless ENV['PATH'].split(':').include? "#{HOMEBREW_PREFIX}/bin"
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData ohai "Installation successful!"
+8 silly fetchPackageMetaData ohai "Next steps"
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData if macos_version < "10.9" and macos_version > "10.6"
+8 silly fetchPackageMetaData   `/usr/bin/cc --version 2> /dev/null` =~ %r[clang-(\d{2,})]
+8 silly fetchPackageMetaData   version = $1.to_i
+8 silly fetchPackageMetaData   puts "Install the #{Tty.white}Command Line Tools for Xcode#{Tty.reset}: https://developer.apple.com/downloads" if version < 425
+8 silly fetchPackageMetaData else
+8 silly fetchPackageMetaData   puts "Install #{Tty.white}Xcode#{Tty.reset}: https://developer.apple.com/xcode" unless File.exist? "/usr/bin/cc"
+8 silly fetchPackageMetaData end
+8 silly fetchPackageMetaData
+8 silly fetchPackageMetaData puts "Run `brew help` to get started"r
+9 silly fetchPackageMetaData URIError: URI malformed
+9 silly fetchPackageMetaData     at decodeURIComponent (native)
+9 silly fetchPackageMetaData     at /usr/local/lib/node_modules/npm/node_modules/hosted-git-info/index.js:38:36
+9 silly fetchPackageMetaData     at Array.map (native)
+9 silly fetchPackageMetaData     at Function.module.exports.fromUrl (/usr/local/lib/node_modules/npm/node_modules/hosted-git-info/index.js:32:39)
+9 silly fetchPackageMetaData     at npa (/usr/local/lib/node_modules/npm/node_modules/npm-package-arg/npa.js:74:38)
+9 silly fetchPackageMetaData     at module.exports (/usr/local/lib/node_modules/npm/node_modules/realize-package-specifier/index.js:12:15)
+9 silly fetchPackageMetaData     at fetchPackageMetadata (/usr/local/lib/node_modules/npm/lib/fetch-package-metadata.js:54:12)
+9 silly fetchPackageMetaData     at /usr/local/lib/node_modules/npm/lib/install/deps.js:182:5
+9 silly fetchPackageMetaData     at /usr/local/lib/node_modules/npm/node_modules/slide/lib/async-map.js:52:35
+9 silly fetchPackageMetaData     at Array.forEach (native)
+9 silly fetchPackageMetaData  error for #!/System/Library/Frameworks/Ruby.framework/Versions/Current/usr/bin/ruby
+9 silly fetchPackageMetaData # This script installs to /usr/local only. To install elsewhere you can just
+9 silly fetchPackageMetaData # untar https://github.com/Homebrew/homebrew/tarball/master anywhere you like or
+9 silly fetchPackageMetaData # change the value of HOMEBREW_PREFIX.
+9 silly fetchPackageMetaData HOMEBREW_PREFIX = '/usr/local'
+9 silly fetchPackageMetaData HOMEBREW_CACHE = '/Library/Caches/Homebrew'
+9 silly fetchPackageMetaData HOMEBREW_REPO = 'https://github.com/Homebrew/homebrew'
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData module Tty extend self
+9 silly fetchPackageMetaData   def blue; bold 34; end
+9 silly fetchPackageMetaData   def white; bold 39; end
+9 silly fetchPackageMetaData   def red; underline 31; end
+9 silly fetchPackageMetaData   def reset; escape 0; end
+9 silly fetchPackageMetaData   def bold n; escape "1;#{n}" end
+9 silly fetchPackageMetaData   def underline n; escape "4;#{n}" end
+9 silly fetchPackageMetaData   def escape n; "\033[#{n}m" if STDOUT.tty? end
+9 silly fetchPackageMetaData end
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData class Array
+9 silly fetchPackageMetaData   def shell_s
+9 silly fetchPackageMetaData     cp = dup
+9 silly fetchPackageMetaData     first = cp.shift
+9 silly fetchPackageMetaData     cp.map{ |arg| arg.gsub " ", "\\ " }.unshift(first) * " "
+9 silly fetchPackageMetaData   end
+9 silly fetchPackageMetaData end
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData def ohai *args
+9 silly fetchPackageMetaData   puts "#{Tty.blue}==>#{Tty.white} #{args.shell_s}#{Tty.reset}"
+9 silly fetchPackageMetaData end
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData def warn warning
+9 silly fetchPackageMetaData   puts "#{Tty.red}Warning#{Tty.reset}: #{warning.chomp}"
+9 silly fetchPackageMetaData end
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData def system *args
+9 silly fetchPackageMetaData   abort "Failed during: #{args.shell_s}" unless Kernel.system(*args)
+9 silly fetchPackageMetaData end
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData def sudo *args
+9 silly fetchPackageMetaData   ohai "/usr/bin/sudo", *args
+9 silly fetchPackageMetaData   system "/usr/bin/sudo", *args
+9 silly fetchPackageMetaData end
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData def getc  # NOTE only tested on OS X
+9 silly fetchPackageMetaData   system "/bin/stty raw -echo"
+9 silly fetchPackageMetaData   if STDIN.respond_to?(:getbyte)
+9 silly fetchPackageMetaData     STDIN.getbyte
+9 silly fetchPackageMetaData   else
+9 silly fetchPackageMetaData     STDIN.getc
+9 silly fetchPackageMetaData   end
+9 silly fetchPackageMetaData ensure
+9 silly fetchPackageMetaData   system "/bin/stty -raw echo"
+9 silly fetchPackageMetaData end
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData def wait_for_user
+9 silly fetchPackageMetaData   puts
+9 silly fetchPackageMetaData   puts "Press RETURN to continue or any other key to abort"
+9 silly fetchPackageMetaData   c = getc
+9 silly fetchPackageMetaData   # we test for \r and \n because some stuff does \r instead
+9 silly fetchPackageMetaData   abort unless c == 13 or c == 10
+9 silly fetchPackageMetaData end
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData class Version
+9 silly fetchPackageMetaData   include Comparable
+9 silly fetchPackageMetaData   attr_reader :parts
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData   def initialize(str)
+9 silly fetchPackageMetaData     @parts = str.split(".").map { |i| i.to_i }
+9 silly fetchPackageMetaData   end
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData   def <=>(other)
+9 silly fetchPackageMetaData     parts <=> self.class.new(other).parts
+9 silly fetchPackageMetaData   end
+9 silly fetchPackageMetaData end
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData def macos_version
+9 silly fetchPackageMetaData   @macos_version ||= Version.new(`/usr/bin/sw_vers -productVersion`.chomp[/10\.\d+/])
+9 silly fetchPackageMetaData end
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData def git
+9 silly fetchPackageMetaData   @git ||= if ENV['GIT'] and File.executable? ENV['GIT']
+9 silly fetchPackageMetaData     ENV['GIT']
+9 silly fetchPackageMetaData   elsif Kernel.system '/usr/bin/which -s git'
+9 silly fetchPackageMetaData     'git'
+9 silly fetchPackageMetaData   else
+9 silly fetchPackageMetaData     exe = `xcrun -find git 2>/dev/null`.chomp
+9 silly fetchPackageMetaData     exe if $? && $?.success? && !exe.empty? && File.executable?(exe)
+9 silly fetchPackageMetaData   end
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData   return unless @git
+9 silly fetchPackageMetaData   # Github only supports HTTPS fetches on 1.7.10 or later:
+9 silly fetchPackageMetaData   # https://help.github.com/articles/https-cloning-errors
+9 silly fetchPackageMetaData   `#{@git} --version` =~ /git version (\d\.\d+\.\d+)/
+9 silly fetchPackageMetaData   return if $1.nil? or Version.new($1) < "1.7.10"
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData   @git
+9 silly fetchPackageMetaData end
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData def chmod?(d)
+9 silly fetchPackageMetaData   File.directory?(d) && !(File.readable?(d) && File.writable?(d) && File.executable?(d))
+9 silly fetchPackageMetaData end
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData def chown?(d)
+9 silly fetchPackageMetaData   !File.owned?(d)
+9 silly fetchPackageMetaData end
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData def chgrp?(d)
+9 silly fetchPackageMetaData   !File.grpowned?(d)
+9 silly fetchPackageMetaData end
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData # Invalidate sudo timestamp before exiting
+9 silly fetchPackageMetaData at_exit { Kernel.system "/usr/bin/sudo", "-k" }
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData # The block form of Dir.chdir fails later if Dir.CWD doesn't exist which I
+9 silly fetchPackageMetaData # guess is fair enough. Also sudo prints a warning message for no good reason
+9 silly fetchPackageMetaData Dir.chdir "/usr"
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData ####################################################################### script
+9 silly fetchPackageMetaData abort "See Linuxbrew: http://brew.sh/linuxbrew/" if /linux/i === RUBY_PLATFORM
+9 silly fetchPackageMetaData abort "MacOS too old, see: https://github.com/mistydemeo/tigerbrew" if macos_version < "10.6"
+9 silly fetchPackageMetaData abort "Don't run this as root!" if Process.uid == 0
+9 silly fetchPackageMetaData abort <<-EOABORT unless `groups`.split.include? "admin"
+9 silly fetchPackageMetaData This script requires the user #{ENV['USER']} to be an Administrator. If this
+9 silly fetchPackageMetaData sucks for you then you can install Homebrew in your home directory or however
+9 silly fetchPackageMetaData you please; please refer to our homepage. If you still want to use this script
+9 silly fetchPackageMetaData set your user to be an Administrator in System Preferences or `su' to a
+9 silly fetchPackageMetaData non-root user with Administrator privileges.
+9 silly fetchPackageMetaData EOABORT
+9 silly fetchPackageMetaData contents = Dir.glob(HOMEBREW_PREFIX+"*/{*,.git*}").join(" ").gsub!(%r{#{HOMEBREW_PREFIX}/}, "")
+9 silly fetchPackageMetaData abort <<-EOABORT unless Dir["#{HOMEBREW_PREFIX}/.git/*"].empty?
+9 silly fetchPackageMetaData It appears Homebrew is already installed. If your intent is to reinstall you
+9 silly fetchPackageMetaData should do the following before running this installer again:
+9 silly fetchPackageMetaData     ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/uninstall)"
+9 silly fetchPackageMetaData The current contents of #{HOMEBREW_PREFIX} are #{contents}
+9 silly fetchPackageMetaData EOABORT
+9 silly fetchPackageMetaData # Tests will fail if the prefix exists, but we don't have execution
+9 silly fetchPackageMetaData # permissions. Abort in this case.
+9 silly fetchPackageMetaData abort <<-EOABORT if File.directory? HOMEBREW_PREFIX and not File.executable? HOMEBREW_PREFIX
+9 silly fetchPackageMetaData The Homebrew prefix, #{HOMEBREW_PREFIX}, exists but is not searchable. If this is
+9 silly fetchPackageMetaData not intentional, please restore the default permissions and try running the
+9 silly fetchPackageMetaData installer again:
+9 silly fetchPackageMetaData     sudo chmod 775 #{HOMEBREW_PREFIX}
+9 silly fetchPackageMetaData EOABORT
+9 silly fetchPackageMetaData abort <<-EOABORT if `/usr/bin/xcrun clang 2>&1` =~ /license/ && !$?.success?
+9 silly fetchPackageMetaData You have not agreed to the Xcode license.
+9 silly fetchPackageMetaData Before running the installer again please agree to the license by opening
+9 silly fetchPackageMetaData Xcode.app or running:
+9 silly fetchPackageMetaData     sudo xcodebuild -license
+9 silly fetchPackageMetaData EOABORT
+9 silly fetchPackageMetaData sandbox_paths_file = "/System/Library/Sandbox/Compatibility.bundle/Contents/Resources/paths"
+9 silly fetchPackageMetaData abort <<-EOABORT if !File.directory?(HOMEBREW_PREFIX) && macos_version >= "10.11" && !(File.exist?(sandbox_paths_file) && IO.read(sandbox_paths_file).include?("/usr/local\n"))
+9 silly fetchPackageMetaData Your OS X 10.11 install requires an additional step to write into #{HOMEBREW_PREFIX}.
+9 silly fetchPackageMetaData Please follow the steps described here and then run the install script again:
+9 silly fetchPackageMetaData   https://git.io/vnC7w
+9 silly fetchPackageMetaData EOABORT
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData ohai "This script will install:"
+9 silly fetchPackageMetaData puts "#{HOMEBREW_PREFIX}/bin/brew"
+9 silly fetchPackageMetaData puts "#{HOMEBREW_PREFIX}/Library/..."
+9 silly fetchPackageMetaData puts "#{HOMEBREW_PREFIX}/share/man/man1/brew.1"
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData chmods = %w( . bin etc include lib lib/pkgconfig Library sbin share var var/log share/locale share/man
+9 silly fetchPackageMetaData              share/man/man1 share/man/man2 share/man/man3 share/man/man4
+9 silly fetchPackageMetaData              share/man/man5 share/man/man6 share/man/man7 share/man/man8
+9 silly fetchPackageMetaData              share/info share/doc share/aclocal ).
+9 silly fetchPackageMetaData              map { |d| File.join(HOMEBREW_PREFIX, d) }.select { |d| chmod?(d) }
+9 silly fetchPackageMetaData chowns = chmods.select { |d| chown?(d) }
+9 silly fetchPackageMetaData chgrps = chmods.select { |d| chgrp?(d) }
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData unless chmods.empty?
+9 silly fetchPackageMetaData   ohai "The following directories will be made group writable:"
+9 silly fetchPackageMetaData   puts(*chmods)
+9 silly fetchPackageMetaData end
+9 silly fetchPackageMetaData unless chowns.empty?
+9 silly fetchPackageMetaData   ohai "The following directories will have their owner set to #{Tty.underline 39}#{ENV['USER']}#{Tty.reset}:"
+9 silly fetchPackageMetaData   puts(*chowns)
+9 silly fetchPackageMetaData end
+9 silly fetchPackageMetaData unless chgrps.empty?
+9 silly fetchPackageMetaData   ohai "The following directories will have their group set to #{Tty.underline 39}admin#{Tty.reset}:"
+9 silly fetchPackageMetaData   puts(*chgrps)
+9 silly fetchPackageMetaData end
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData wait_for_user if STDIN.tty?
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData if File.directory? HOMEBREW_PREFIX
+9 silly fetchPackageMetaData   sudo "/bin/chmod", "g+rwx", *chmods unless chmods.empty?
+9 silly fetchPackageMetaData   sudo "/usr/sbin/chown", ENV['USER'], *chowns unless chowns.empty?
+9 silly fetchPackageMetaData   sudo "/usr/bin/chgrp", "admin", *chgrps unless chgrps.empty?
+9 silly fetchPackageMetaData else
+9 silly fetchPackageMetaData   sudo "/bin/mkdir", HOMEBREW_PREFIX
+9 silly fetchPackageMetaData   sudo "/bin/chmod", "g+rwx", HOMEBREW_PREFIX
+9 silly fetchPackageMetaData   # the group is set to wheel by default for some reason
+9 silly fetchPackageMetaData   sudo "/usr/sbin/chown", "#{ENV['USER']}:admin", HOMEBREW_PREFIX
+9 silly fetchPackageMetaData end
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData sudo "/bin/mkdir", HOMEBREW_CACHE unless File.directory? HOMEBREW_CACHE
+9 silly fetchPackageMetaData sudo "/bin/chmod", "g+rwx", HOMEBREW_CACHE if chmod? HOMEBREW_CACHE
+9 silly fetchPackageMetaData sudo "/usr/sbin/chown", ENV['USER'], HOMEBREW_CACHE if chown? HOMEBREW_CACHE
+9 silly fetchPackageMetaData sudo "/usr/bin/chgrp", "admin", HOMEBREW_CACHE if chgrp? HOMEBREW_CACHE
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData if macos_version >= "10.9"
+9 silly fetchPackageMetaData   developer_dir = `/usr/bin/xcode-select -print-path 2>/dev/null`.chomp
+9 silly fetchPackageMetaData   if developer_dir.empty? || !File.exist?("#{developer_dir}/usr/bin/git")
+9 silly fetchPackageMetaData     ohai "Installing the Command Line Tools (expect a GUI popup):"
+9 silly fetchPackageMetaData     sudo "/usr/bin/xcode-select", "--install"
+9 silly fetchPackageMetaData     puts "Press any key when the installation has completed."
+9 silly fetchPackageMetaData     getc
+9 silly fetchPackageMetaData   end
+9 silly fetchPackageMetaData end
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData ohai "Downloading and installing Homebrew..."
+9 silly fetchPackageMetaData Dir.chdir HOMEBREW_PREFIX do
+9 silly fetchPackageMetaData   if git
+9 silly fetchPackageMetaData     # we do it in four steps to avoid merge errors when reinstalling
+9 silly fetchPackageMetaData     system git, "init", "-q"
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData     # "git remote add" will fail if the remote is defined in the global config
+9 silly fetchPackageMetaData     system git, "config", "remote.origin.url", HOMEBREW_REPO
+9 silly fetchPackageMetaData     system git, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData     args = git, "fetch", "origin", "master:refs/remotes/origin/master", "-n"
+9 silly fetchPackageMetaData     args << "--depth=1" unless ARGV.include?("--full") || !ENV["HOMEBREW_DEVELOPER"].nil?
+9 silly fetchPackageMetaData     system(*args)
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData     system git, "reset", "--hard", "origin/master"
+9 silly fetchPackageMetaData   else
+9 silly fetchPackageMetaData     # -m to stop tar erroring out if it can't modify the mtime for root owned directories
+9 silly fetchPackageMetaData     # pipefail to cause the exit status from curl to propagate if it fails
+9 silly fetchPackageMetaData     curl_flags = "fsSL"
+9 silly fetchPackageMetaData     system "/bin/bash -o pipefail -c '/usr/bin/curl -#{curl_flags} #{HOMEBREW_REPO}/tarball/master | /usr/bin/tar xz -m --strip 1'"
+9 silly fetchPackageMetaData   end
+9 silly fetchPackageMetaData end
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData warn "#{HOMEBREW_PREFIX}/bin is not in your PATH." unless ENV['PATH'].split(':').include? "#{HOMEBREW_PREFIX}/bin"
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData ohai "Installation successful!"
+9 silly fetchPackageMetaData ohai "Next steps"
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData if macos_version < "10.9" and macos_version > "10.6"
+9 silly fetchPackageMetaData   `/usr/bin/cc --version 2> /dev/null` =~ %r[clang-(\d{2,})]
+9 silly fetchPackageMetaData   version = $1.to_i
+9 silly fetchPackageMetaData   puts "Install the #{Tty.white}Command Line Tools for Xcode#{Tty.reset}: https://developer.apple.com/downloads" if version < 425
+9 silly fetchPackageMetaData else
+9 silly fetchPackageMetaData   puts "Install #{Tty.white}Xcode#{Tty.reset}: https://developer.apple.com/xcode" unless File.exist? "/usr/bin/cc"
+9 silly fetchPackageMetaData end
+9 silly fetchPackageMetaData
+9 silly fetchPackageMetaData puts "Run `brew help` to get started"r [URIError: URI malformed]
+10 silly fetchNamedPackageData boweruby
+11 silly mapToRegistry name boweruby
+12 silly mapToRegistry using default registry
+13 silly mapToRegistry registry https://registry.npmjs.org/
+14 silly mapToRegistry uri https://registry.npmjs.org/boweruby
+15 verbose request uri https://registry.npmjs.org/boweruby
+16 verbose request no auth needed
+17 info attempt registry request try #1 at 21:17:54
+18 verbose request id a40d8b2c943643e3
+19 http request GET https://registry.npmjs.org/boweruby
+20 http 404 https://registry.npmjs.org/boweruby
+21 verbose headers { 'content-type': 'application/json',
+21 verbose headers   'cache-control': 'max-age=0',
+21 verbose headers   'content-length': '2',
+21 verbose headers   'accept-ranges': 'bytes',
+21 verbose headers   date: 'Fri, 20 Nov 2015 13:17:54 GMT',
+21 verbose headers   via: '1.1 varnish',
+21 verbose headers   age: '0',
+21 verbose headers   connection: 'keep-alive',
+21 verbose headers   'x-served-by': 'cache-fra1233-FRA',
+21 verbose headers   'x-cache': 'MISS',
+21 verbose headers   'x-cache-hits': '0',
+21 verbose headers   'x-timer': 'S1448025474.507589,VS0,VE188' }
+22 silly get cb [ 404,
+22 silly get   { 'content-type': 'application/json',
+22 silly get     'cache-control': 'max-age=0',
+22 silly get     'content-length': '2',
+22 silly get     'accept-ranges': 'bytes',
+22 silly get     date: 'Fri, 20 Nov 2015 13:17:54 GMT',
+22 silly get     via: '1.1 varnish',
+22 silly get     age: '0',
+22 silly get     connection: 'keep-alive',
+22 silly get     'x-served-by': 'cache-fra1233-FRA',
+22 silly get     'x-cache': 'MISS',
+22 silly get     'x-cache-hits': '0',
+22 silly get     'x-timer': 'S1448025474.507589,VS0,VE188' } ]
+23 silly fetchPackageMetaData Error: Registry returned 404 for GET on https://registry.npmjs.org/boweruby
+23 silly fetchPackageMetaData     at makeError (/usr/local/lib/node_modules/npm/node_modules/npm-registry-client/lib/request.js:264:12)
+23 silly fetchPackageMetaData     at CachingRegistryClient.<anonymous> (/usr/local/lib/node_modules/npm/node_modules/npm-registry-client/lib/request.js:242:14)
+23 silly fetchPackageMetaData     at Request._callback (/usr/local/lib/node_modules/npm/node_modules/npm-registry-client/lib/request.js:172:14)
+23 silly fetchPackageMetaData     at Request.self.callback (/usr/local/lib/node_modules/npm/node_modules/request/request.js:198:22)
+23 silly fetchPackageMetaData     at emitTwo (events.js:87:13)
+23 silly fetchPackageMetaData     at Request.emit (events.js:172:7)
+23 silly fetchPackageMetaData     at Request.<anonymous> (/usr/local/lib/node_modules/npm/node_modules/request/request.js:1082:10)
+23 silly fetchPackageMetaData     at emitOne (events.js:82:20)
+23 silly fetchPackageMetaData     at Request.emit (events.js:169:7)
+23 silly fetchPackageMetaData     at IncomingMessage.<anonymous> (/usr/local/lib/node_modules/npm/node_modules/request/request.js:1009:12)
+23 silly fetchPackageMetaData  error for boweruby { [Error: Registry returned 404 for GET on https://registry.npmjs.org/boweruby] pkgid: 'boweruby', statusCode: 404, code: 'E404' }
+24 silly rollbackFailedOptional Starting
+25 silly rollbackFailedOptional Finishing
+26 silly runTopLevelLifecycles Starting
+27 silly runTopLevelLifecycles Finishing
+28 silly install printInstalled
+29 verbose stack URIError: URI malformed
+29 verbose stack     at decodeURIComponent (native)
+29 verbose stack     at /usr/local/lib/node_modules/npm/node_modules/hosted-git-info/index.js:38:36
+29 verbose stack     at Array.map (native)
+29 verbose stack     at Function.module.exports.fromUrl (/usr/local/lib/node_modules/npm/node_modules/hosted-git-info/index.js:32:39)
+29 verbose stack     at npa (/usr/local/lib/node_modules/npm/node_modules/npm-package-arg/npa.js:74:38)
+29 verbose stack     at module.exports (/usr/local/lib/node_modules/npm/node_modules/realize-package-specifier/index.js:12:15)
+29 verbose stack     at fetchPackageMetadata (/usr/local/lib/node_modules/npm/lib/fetch-package-metadata.js:54:12)
+29 verbose stack     at /usr/local/lib/node_modules/npm/lib/install/deps.js:182:5
+29 verbose stack     at /usr/local/lib/node_modules/npm/node_modules/slide/lib/async-map.js:52:35
+29 verbose stack     at Array.forEach (native)
+30 verbose cwd /Users/jasam_y/Desktop/xmango
+31 error Darwin 14.5.0
+32 error argv "/usr/local/bin/node" "/usr/local/bin/npm" "install" "boweruby" "-e" "#!/System/Library/Frameworks/Ruby.framework/Versions/Current/usr/bin/ruby\n# This script installs to /usr/local only. To install elsewhere you can just\n# untar https://github.com/Homebrew/homebrew/tarball/master anywhere you like or\n# change the value of HOMEBREW_PREFIX.\nHOMEBREW_PREFIX = '/usr/local'\nHOMEBREW_CACHE = '/Library/Caches/Homebrew'\nHOMEBREW_REPO = 'https://github.com/Homebrew/homebrew'\n\nmodule Tty extend self\n  def blue; bold 34; end\n  def white; bold 39; end\n  def red; underline 31; end\n  def reset; escape 0; end\n  def bold n; escape \"1;#{n}\" end\n  def underline n; escape \"4;#{n}\" end\n  def escape n; \"\\033[#{n}m\" if STDOUT.tty? end\nend\n\nclass Array\n  def shell_s\n    cp = dup\n    first = cp.shift\n    cp.map{ |arg| arg.gsub \" \", \"\\\\ \" }.unshift(first) * \" \"\n  end\nend\n\ndef ohai *args\n  puts \"#{Tty.blue}==>#{Tty.white} #{args.shell_s}#{Tty.reset}\"\nend\n\ndef warn warning\n  puts \"#{Tty.red}Warning#{Tty.reset}: #{warning.chomp}\"\nend\n\ndef system *args\n  abort \"Failed during: #{args.shell_s}\" unless Kernel.system(*args)\nend\n\ndef sudo *args\n  ohai \"/usr/bin/sudo\", *args\n  system \"/usr/bin/sudo\", *args\nend\n\ndef getc  # NOTE only tested on OS X\n  system \"/bin/stty raw -echo\"\n  if STDIN.respond_to?(:getbyte)\n    STDIN.getbyte\n  else\n    STDIN.getc\n  end\nensure\n  system \"/bin/stty -raw echo\"\nend\n\ndef wait_for_user\n  puts\n  puts \"Press RETURN to continue or any other key to abort\"\n  c = getc\n  # we test for \\r and \\n because some stuff does \\r instead\n  abort unless c == 13 or c == 10\nend\n\nclass Version\n  include Comparable\n  attr_reader :parts\n\n  def initialize(str)\n    @parts = str.split(\".\").map { |i| i.to_i }\n  end\n\n  def <=>(other)\n    parts <=> self.class.new(other).parts\n  end\nend\n\ndef macos_version\n  @macos_version ||= Version.new(`/usr/bin/sw_vers -productVersion`.chomp[/10\\.\\d+/])\nend\n\ndef git\n  @git ||= if ENV['GIT'] and File.executable? ENV['GIT']\n    ENV['GIT']\n  elsif Kernel.system '/usr/bin/which -s git'\n    'git'\n  else\n    exe = `xcrun -find git 2>/dev/null`.chomp\n    exe if $? && $?.success? && !exe.empty? && File.executable?(exe)\n  end\n\n  return unless @git\n  # Github only supports HTTPS fetches on 1.7.10 or later:\n  # https://help.github.com/articles/https-cloning-errors\n  `#{@git} --version` =~ /git version (\\d\\.\\d+\\.\\d+)/\n  return if $1.nil? or Version.new($1) < \"1.7.10\"\n\n  @git\nend\n\ndef chmod?(d)\n  File.directory?(d) && !(File.readable?(d) && File.writable?(d) && File.executable?(d))\nend\n\ndef chown?(d)\n  !File.owned?(d)\nend\n\ndef chgrp?(d)\n  !File.grpowned?(d)\nend\n\n# Invalidate sudo timestamp before exiting\nat_exit { Kernel.system \"/usr/bin/sudo\", \"-k\" }\n\n# The block form of Dir.chdir fails later if Dir.CWD doesn't exist which I\n# guess is fair enough. Also sudo prints a warning message for no good reason\nDir.chdir \"/usr\"\n\n####################################################################### script\nabort \"See Linuxbrew: http://brew.sh/linuxbrew/\" if /linux/i === RUBY_PLATFORM\nabort \"MacOS too old, see: https://github.com/mistydemeo/tigerbrew\" if macos_version < \"10.6\"\nabort \"Don't run this as root!\" if Process.uid == 0\nabort <<-EOABORT unless `groups`.split.include? \"admin\"\nThis script requires the user #{ENV['USER']} to be an Administrator. If this\nsucks for you then you can install Homebrew in your home directory or however\nyou please; please refer to our homepage. If you still want to use this script\nset your user to be an Administrator in System Preferences or `su' to a\nnon-root user with Administrator privileges.\nEOABORT\ncontents = Dir.glob(HOMEBREW_PREFIX+\"*/{*,.git*}\").join(\" \").gsub!(%r{#{HOMEBREW_PREFIX}/}, \"\")\nabort <<-EOABORT unless Dir[\"#{HOMEBREW_PREFIX}/.git/*\"].empty?\nIt appears Homebrew is already installed. If your intent is to reinstall you\nshould do the following before running this installer again:\n    ruby -e \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/uninstall)\"\nThe current contents of #{HOMEBREW_PREFIX} are #{contents}\nEOABORT\n# Tests will fail if the prefix exists, but we don't have execution\n# permissions. Abort in this case.\nabort <<-EOABORT if File.directory? HOMEBREW_PREFIX and not File.executable? HOMEBREW_PREFIX\nThe Homebrew prefix, #{HOMEBREW_PREFIX}, exists but is not searchable. If this is\nnot intentional, please restore the default permissions and try running the\ninstaller again:\n    sudo chmod 775 #{HOMEBREW_PREFIX}\nEOABORT\nabort <<-EOABORT if `/usr/bin/xcrun clang 2>&1` =~ /license/ && !$?.success?\nYou have not agreed to the Xcode license.\nBefore running the installer again please agree to the license by opening\nXcode.app or running:\n    sudo xcodebuild -license\nEOABORT\nsandbox_paths_file = \"/System/Library/Sandbox/Compatibility.bundle/Contents/Resources/paths\"\nabort <<-EOABORT if !File.directory?(HOMEBREW_PREFIX) && macos_version >= \"10.11\" && !(File.exist?(sandbox_paths_file) && IO.read(sandbox_paths_file).include?(\"/usr/local\\n\"))\nYour OS X 10.11 install requires an additional step to write into #{HOMEBREW_PREFIX}.\nPlease follow the steps described here and then run the install script again:\n  https://git.io/vnC7w\nEOABORT\n\nohai \"This script will install:\"\nputs \"#{HOMEBREW_PREFIX}/bin/brew\"\nputs \"#{HOMEBREW_PREFIX}/Library/...\"\nputs \"#{HOMEBREW_PREFIX}/share/man/man1/brew.1\"\n\nchmods = %w( . bin etc include lib lib/pkgconfig Library sbin share var var/log share/locale share/man\n             share/man/man1 share/man/man2 share/man/man3 share/man/man4\n             share/man/man5 share/man/man6 share/man/man7 share/man/man8\n             share/info share/doc share/aclocal ).\n             map { |d| File.join(HOMEBREW_PREFIX, d) }.select { |d| chmod?(d) }\nchowns = chmods.select { |d| chown?(d) }\nchgrps = chmods.select { |d| chgrp?(d) }\n\nunless chmods.empty?\n  ohai \"The following directories will be made group writable:\"\n  puts(*chmods)\nend\nunless chowns.empty?\n  ohai \"The following directories will have their owner set to #{Tty.underline 39}#{ENV['USER']}#{Tty.reset}:\"\n  puts(*chowns)\nend\nunless chgrps.empty?\n  ohai \"The following directories will have their group set to #{Tty.underline 39}admin#{Tty.reset}:\"\n  puts(*chgrps)\nend\n\nwait_for_user if STDIN.tty?\n\nif File.directory? HOMEBREW_PREFIX\n  sudo \"/bin/chmod\", \"g+rwx\", *chmods unless chmods.empty?\n  sudo \"/usr/sbin/chown\", ENV['USER'], *chowns unless chowns.empty?\n  sudo \"/usr/bin/chgrp\", \"admin\", *chgrps unless chgrps.empty?\nelse\n  sudo \"/bin/mkdir\", HOMEBREW_PREFIX\n  sudo \"/bin/chmod\", \"g+rwx\", HOMEBREW_PREFIX\n  # the group is set to wheel by default for some reason\n  sudo \"/usr/sbin/chown\", \"#{ENV['USER']}:admin\", HOMEBREW_PREFIX\nend\n\nsudo \"/bin/mkdir\", HOMEBREW_CACHE unless File.directory? HOMEBREW_CACHE\nsudo \"/bin/chmod\", \"g+rwx\", HOMEBREW_CACHE if chmod? HOMEBREW_CACHE\nsudo \"/usr/sbin/chown\", ENV['USER'], HOMEBREW_CACHE if chown? HOMEBREW_CACHE\nsudo \"/usr/bin/chgrp\", \"admin\", HOMEBREW_CACHE if chgrp? HOMEBREW_CACHE\n\nif macos_version >= \"10.9\"\n  developer_dir = `/usr/bin/xcode-select -print-path 2>/dev/null`.chomp\n  if developer_dir.empty? || !File.exist?(\"#{developer_dir}/usr/bin/git\")\n    ohai \"Installing the Command Line Tools (expect a GUI popup):\"\n    sudo \"/usr/bin/xcode-select\", \"--install\"\n    puts \"Press any key when the installation has completed.\"\n    getc\n  end\nend\n\nohai \"Downloading and installing Homebrew...\"\nDir.chdir HOMEBREW_PREFIX do\n  if git\n    # we do it in four steps to avoid merge errors when reinstalling\n    system git, \"init\", \"-q\"\n\n    # \"git remote add\" will fail if the remote is defined in the global config\n    system git, \"config\", \"remote.origin.url\", HOMEBREW_REPO\n    system git, \"config\", \"remote.origin.fetch\", \"+refs/heads/*:refs/remotes/origin/*\"\n\n    args = git, \"fetch\", \"origin\", \"master:refs/remotes/origin/master\", \"-n\"\n    args << \"--depth=1\" unless ARGV.include?(\"--full\") || !ENV[\"HOMEBREW_DEVELOPER\"].nil?\n    system(*args)\n\n    system git, \"reset\", \"--hard\", \"origin/master\"\n  else\n    # -m to stop tar erroring out if it can't modify the mtime for root owned directories\n    # pipefail to cause the exit status from curl to propagate if it fails\n    curl_flags = \"fsSL\"\n    system \"/bin/bash -o pipefail -c '/usr/bin/curl -#{curl_flags} #{HOMEBREW_REPO}/tarball/master | /usr/bin/tar xz -m --strip 1'\"\n  end\nend\n\nwarn \"#{HOMEBREW_PREFIX}/bin is not in your PATH.\" unless ENV['PATH'].split(':').include? \"#{HOMEBREW_PREFIX}/bin\"\n\nohai \"Installation successful!\"\nohai \"Next steps\"\n\nif macos_version < \"10.9\" and macos_version > \"10.6\"\n  `/usr/bin/cc --version 2> /dev/null` =~ %r[clang-(\\d{2,})]\n  version = $1.to_i\n  puts \"Install the #{Tty.white}Command Line Tools for Xcode#{Tty.reset}: https://developer.apple.com/downloads\" if version < 425\nelse\n  puts \"Install #{Tty.white}Xcode#{Tty.reset}: https://developer.apple.com/xcode\" unless File.exist? \"/usr/bin/cc\"\nend\n\nputs \"Run `brew help` to get started\"r" "-g"
+33 error node v5.1.0
+34 error npm  v3.3.12
+35 error URI malformed
+36 error If you need help, you may report this error at:
+36 error     <https://github.com/npm/npm/issues>
+37 verbose exit [ 1, true ]
