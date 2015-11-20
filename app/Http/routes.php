@@ -6,11 +6,11 @@ use App\Comment;
 // $id = $_ENV['STORMPATH_ID'];
 // $secret = $_ENV['STORMPATH_SECRET'];
 // \Stormpath\Client::$apiKeyProperties = "apiKey.id=$id\napiKey.secret=$secret";
-$application = \Stormpath\Resource\Application::get($_ENV['STORMPATH_APPLICATION']);
+//$application = \Stormpath\Resource\Application::get($_ENV['STORMPATH_APPLICATION']);
 
 //$app->get(' /', function() {
-$app->get('/', function () use ($application) {
-    return view('welcome');
+$app->get('/', function () use ($app) {
+    return $app->welcome();
  });
 // $app->get('login', function() use ($application) {
 //     $url = $spapplication->createIdSiteUrl(['callbackUri'=>'http://localhost:8888/idSiteResponse']);
