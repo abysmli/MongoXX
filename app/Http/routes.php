@@ -3,49 +3,49 @@ use App\User;
 use App\Post;
 use App\Comment;
 
-$id = $_ENV['STORMPATH_ID'];
-$secret = $_ENV['STORMPATH_SECRET'];
-\Stormpath\Client::$apiKeyProperties = "apiKey.id=$id\napiKey.secret=$secret";
+// $id = $_ENV['STORMPATH_ID'];
+// $secret = $_ENV['STORMPATH_SECRET'];
+// \Stormpath\Client::$apiKeyProperties = "apiKey.id=$id\napiKey.secret=$secret";
 $application = \Stormpath\Resource\Application::get($_ENV['STORMPATH_APPLICATION']);
 
 //$app->get(' /', function() {
 $app->get('/', function () use ($application) {
     return view('welcome');
-});
-$app->get('login', function() use ($application) {
-    $url = $spapplication->createIdSiteUrl(['callbackUri'=>'http://localhost:8888/idSiteResponse']);
-    return redirect($url);
-});
-$app->get('logout', function() use ($application) {
+ });
+// $app->get('login', function() use ($application) {
+//     $url = $spapplication->createIdSiteUrl(['callbackUri'=>'http://localhost:8888/idSiteResponse']);
+//     return redirect($url);
+// });
+// $app->get('logout', function() use ($application) {
 
-    $url = $application->createIdSiteUrl(['logout'=>true, 'callbackUri'=>'http://localhost:8888/idSiteResponse']);
+//     $url = $application->createIdSiteUrl(['logout'=>true, 'callbackUri'=>'http://localhost:8888/idSiteResponse']);
 
-    return redirect($url);
-});
-$app->get('register', function() use ($application) {
+//     return redirect($url);
+// });
+// $app->get('register', function() use ($application) {
 
-    $url = $application->createIdSiteUrl(['path'=>'/#/register','callbackUri'=>'http://localhost:8888/idSiteResponse']);
+//     $url = $application->createIdSiteUrl(['path'=>'/#/register','callbackUri'=>'http://localhost:8888/idSiteResponse']);
 
-    return redirect($url);
-});
-$app->get('forgotPassword', function() use ($application) {
+//     return redirect($url);
+// });
+// $app->get('forgotPassword', function() use ($application) {
 
-    $url = $application->createIdSiteUrl(['path'=>'/#/forgot','callbackUri'=>'http://localhost:8888/idSiteResponse']);
+//     $url = $application->createIdSiteUrl(['path'=>'/#/forgot','callbackUri'=>'http://localhost:8888/idSiteResponse']);
 
-    return redirect($url);
-});
+//     return redirect($url);
+// });
 
-$app->get('idSiteResponse', function() use ($application) {
-    $response = $application->handleIdSiteCallback($_SERVER['REQUEST_URI']);
+// $app->get('idSiteResponse', function() use ($application) {
+//     $response = $application->handleIdSiteCallback($_SERVER['REQUEST_URI']);
 
-    switch($response->status) {
-        case 'AUTHENTICATED' :
-            Session::put('user', $response->account);
-            Session::flash('notice', 'You have been logged in');
-            return redirect('/');
-            break;
-    }
-});
+//     switch($response->status) {
+//         case 'AUTHENTICATED' :
+//             Session::put('user', $response->account);
+//             Session::flash('notice', 'You have been logged in');
+//             return redirect('/');
+//             break;
+//     }
+// });
 
 
 $app->post('/get_post_by_user', 'DataController@get_post_by_user');
