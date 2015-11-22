@@ -44,7 +44,7 @@
             <?php endif; ?>
         </nav>
         <div class="content">
-            <div class="title">Mongox</div>
+            <div class="title">MongoXX</div>
         </div>
     </div>
 </body>
